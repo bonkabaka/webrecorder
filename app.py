@@ -78,8 +78,8 @@ class AudioRecorder:
         self.signal_data = []
         self.frequency_data = []
         self.last_update_time = 0
-        self.max_frequency = 0  # 添加最大频率跟踪
-        self.min_frequency = float('inf')  # 添加最小频率跟踪
+        self.max_frequency = 0
+        self.min_frequency = float('inf')
 
     def get_frequency_spectrum(self, data):
         try:
@@ -103,7 +103,6 @@ class AudioRecorder:
                 dominant_freq = freq[max_idx]
                 dominant_freq = min(max(20, dominant_freq), 20000)
 
-                # 更新频率范围
                 if dominant_freq > self.max_frequency:
                     self.max_frequency = dominant_freq
                 if dominant_freq < self.min_frequency:
@@ -114,6 +113,17 @@ class AudioRecorder:
 
         except Exception as e:
             print(f"FFT error: {str(e)}")
+            return 0
+
+    def get_wav_duration(self, filename):
+        try:
+            with wave.open(filename, 'rb') as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                duration = frames / float(rate)
+                return int(duration)
+        except Exception as e:
+            print(f"Error getting WAV duration: {str(e)}")
             return 0
 
     def _record_audio(self):
@@ -183,17 +193,16 @@ class AudioRecorder:
         self.frames = []
         self.signal_data = []
         self.frequency_data = []
-        self.max_frequency = 0  # 重置频率范围
+        self.max_frequency = 0
         self.min_frequency = float('inf')
         self.start_time = time.time()
         threading.Thread(target=self._record_audio, daemon=True).start()
 
     def get_frequency_range(self):
-        """获取当前频率范围"""
         if self.min_frequency == float('inf'):
-            return 0, 22000  # 默认范围
+            return 0, 22000
 
-        min_freq = max(20, self.min_frequency * 0.8)  # 留出一些余量
+        min_freq = max(20, self.min_frequency * 0.8)
         max_freq = min(22000, self.max_frequency * 1.2)
 
         return min_freq, max_freq
@@ -235,8 +244,47 @@ def stop_recording():
 def get_recording():
     filename = recorder.filtered_filename if recorder.audio_filter.filter_enabled else recorder.filename
     if os.path.exists(filename):
-        return send_file(filename)
+        return send_file(filename, mimetype='audio/wav')
     return jsonify({"status": "no recording found"})
+
+
+@app.route('/play_audio', methods=['POST'])
+def play_audio():
+    try:
+        filename = recorder.filtered_filename if recorder.audio_filter.filter_enabled else recorder.filename
+        if not os.path.exists(filename):
+            filename = recorder.filename
+
+        if not os.path.exists(filename):
+            return jsonify({
+                "status": "error",
+                "message": "No recording found"
+            }), 404
+
+        duration = recorder.get_wav_duration(filename)
+
+        return jsonify({
+            "status": "success",
+            "duration": duration
+        })
+    except Exception as e:
+        print(f"Play audio error: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
+@app.route('/stop_playback', methods=['POST'])
+def stop_playback():
+    try:
+        return jsonify({"status": "success"})
+    except Exception as e:
+        print(f"Stop playback error: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 
 @app.route('/get_audio_data')

@@ -204,6 +204,7 @@
         let startTime;
         let updateInterval;
         let playbackTimer;
+        let audio = new Audio();
 
         // 获取DOM元素
         const recordButton = document.getElementById('recordButton');
@@ -357,6 +358,41 @@
             }
         }
 
+        // 播放控制
+        function startPlaybackTimer(duration) {
+            let remaining = duration;
+            if (playbackTimer) {
+                clearInterval(playbackTimer);
+            }
+
+            playbackTimer = setInterval(() => {
+                if (remaining >= 0) {
+                    const minutes = Math.floor(remaining / 60).toString().padStart(2, '0');
+                    const seconds = (remaining % 60).toString().padStart(2, '0');
+                    timerDisplay.textContent = `${minutes}:${seconds}`;
+                    remaining--;
+                } else {
+                    stopPlayback();
+                }
+            }, 1000);
+        }
+
+        function stopPlayback() {
+            isPlaying = false;
+            playButton.textContent = 'Play';
+            playButton.style.backgroundColor = '#4CAF50';
+            statusDisplay.textContent = 'Ready to play';
+            timerDisplay.textContent = '00:00';
+            if (playbackTimer) {
+                clearInterval(playbackTimer);
+                playbackTimer = null;
+            }
+            if (!audio.paused) {
+                audio.pause();
+                audio.currentTime = 0;
+            }
+        }
+
         // 事件监听器
         recordButton.addEventListener('click', async () => {
             try {
@@ -419,9 +455,26 @@
                         method: 'POST'
                     });
 
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
                     const data = await response.json();
 
-                    if (response.ok && data.status === 'success') {
+                    if (data.status === 'success') {
+                        // 获取音频文件并播放
+                        const audioResponse = await fetch('/get_recording');
+                        if (!audioResponse.ok) {
+                            throw new Error('Failed to get audio file');
+                        }
+
+                        const audioBlob = await audioResponse.blob();
+                        const audioUrl = URL.createObjectURL(audioBlob);
+
+                        audio.src = audioUrl;
+                        audio.onended = stopPlayback;
+
+                        await audio.play();
                         isPlaying = true;
                         playButton.textContent = 'Stop';
                         playButton.style.backgroundColor = '#45a049';
@@ -431,12 +484,15 @@
                         statusDisplay.textContent = `Error: ${data.message || 'No recording available'}`;
                     }
                 } else {
+                    audio.pause();
+                    audio.currentTime = 0;
                     await fetch('/stop_playback', { method: 'POST' });
                     stopPlayback();
                 }
             } catch (error) {
                 console.error('Playback error:', error);
                 statusDisplay.textContent = `Error: ${error.message}`;
+                stopPlayback();
             }
         });
 
@@ -448,7 +504,6 @@
             updateFilterSettings();
         });
 
-         // 控件事件监听
         threshold.addEventListener('input', () => {
             document.getElementById('thresholdValue').textContent = threshold.value + ' dB';
             updateFilterSettings();
@@ -462,32 +517,10 @@
             }
         });
 
-        // 播放控制
-        function startPlaybackTimer(duration) {
-            let remaining = duration;
-            playbackTimer = setInterval(() => {
-                if (remaining >= 0) {
-                    const minutes = Math.floor(remaining / 60).toString().padStart(2, '0');
-                    const seconds = (remaining % 60).toString().padStart(2, '0');
-                    timerDisplay.textContent = `${minutes}:${seconds}`;
-                    remaining--;
-                } else {
-                    stopPlayback();
-                }
-            }, 1000);
-        }
-
-        function stopPlayback() {
-            isPlaying = false;
-            playButton.textContent = 'Play';
-            playButton.style.backgroundColor = '#4CAF50';
-            statusDisplay.textContent = 'Ready to play';
-            timerDisplay.textContent = '00:00';
-            if (playbackTimer) {
-                clearInterval(playbackTimer);
-                playbackTimer = null;
-            }
-        }
+        // 音频播放事件监听
+        audio.addEventListener('ended', () => {
+            stopPlayback();
+        });
 
         // 初始化设置
         updateFilterSettings();
